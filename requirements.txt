@@ -1,0 +1,6 @@
+feedparser
+deep-translator
+requests
+rapidfuzz
+beautifulsoup4
+spacy
