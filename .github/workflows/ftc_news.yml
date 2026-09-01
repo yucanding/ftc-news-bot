@@ -1,17 +1,9 @@
-name: FTC News Daily Push
+name: FTC News Push via Webhook
 
 on:
-  schedule:
-    # 表达式说明：
-    # 周一到周五，美东时间早上 08:01。
-    # 考虑 GitHub 使用 UTC 时间：
-    # - 美东夏令时 (EDT, UTC-4) 08:01 对应 UTC 时间 12:01 -> 1 12 * * 1-5
-    # - 美东冬令时 (EST, UTC-5) 08:01 对应 UTC 时间 13:01 -> 1 13 * * 1-5
-    # 为了保证全年基本在 8:01 左右触发，建议采用夏令时对应的时间 (12:01 UTC) 或冬令时 (13:01 UTC)。
-    # 这里设置为 12:01 UTC (即美东夏令时 8:01 / 冬令时 9:01)：
-    - cron: '1 12 * * 1-5'
-    
-  workflow_dispatch: # 允许你在 GitHub 网页上手动点击按钮立即测试
+  workflow_dispatch: # 允许你在 GitHub 后台手动点击按钮触发
+  repository_dispatch:
+    types: [trigger-ftc-bot] # 允许外部通过 API 触发的事件名称
 
 jobs:
   run-bot:
@@ -21,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
