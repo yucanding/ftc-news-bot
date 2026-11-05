@@ -4,3 +4,4 @@ requests
 rapidfuzz
 beautifulsoup4
 spacy
+curl_cffi
