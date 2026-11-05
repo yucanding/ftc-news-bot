@@ -439,12 +439,12 @@ def main():
             headers=BROWSER_HEADERS,
             timeout=30,
         )
-        
-        print(f"Status: {resp.status_code}")
-        print(f"Server: {resp.headers.get('Server')}")
-        print(f"Content-Type: {resp.headers.get('Content-Type')}")
-        print(f"Response: {resp.text[:1000]}")
-        
+
+        print(f"FTC RSS Status: {resp.status_code}")
+        print(f"FTC RSS Final URL: {resp.url}")
+        print(f"FTC RSS Content-Type: {resp.headers.get('Content-Type')}")
+        print(f"FTC RSS Response: {resp.text[:500]}")
+
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
 
