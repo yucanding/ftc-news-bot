@@ -433,26 +433,26 @@ def send_telegram_message(html_content: str):
 
 def main():
     print("开始检查 FTC 最新新闻...")
-        try:
-            resp = requests.get(
-                RSS_URL,
-                headers=BROWSER_HEADERS,
-                timeout=30,
-            )
-    
-            print(f"FTC RSS Status: {resp.status_code}")
-            print(f"FTC RSS Final URL: {resp.url}")
-            print(f"FTC RSS Content-Type: {resp.headers.get('Content-Type')}")
-            print(f"FTC RSS Response: {resp.text[:500]}")
-    
-            resp.raise_for_status()
-            feed = feedparser.parse(resp.content)
-    
-            print(f"FTC RSS Entries: {len(feed.entries)}")
-    
-        except Exception as e:
-            print(f"获取 RSS 失败: {e}")
-            return
+    try:
+        resp = requests.get(
+            RSS_URL,
+            headers=BROWSER_HEADERS,
+            timeout=30,
+        )
+
+        print(f"FTC RSS Status: {resp.status_code}")
+        print(f"FTC RSS Final URL: {resp.url}")
+        print(f"FTC RSS Content-Type: {resp.headers.get('Content-Type')}")
+        print(f"FTC RSS Response: {resp.text[:500]}")
+
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.content)
+
+        print(f"FTC RSS Entries: {len(feed.entries)}")
+
+    except Exception as e:
+        print(f"获取 RSS 失败: {e}")
+        return
 
     load_sec_universe()
     load_spacy()
