@@ -410,7 +410,7 @@ def main():
         )
         blocks.append(item_block)
 
-    final_message = "\n".join(blocks)
+    final_message = "\n".join(blocks) + "\n\n#FTC"
     send_telegram_message(final_message)
 
 
