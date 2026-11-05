@@ -35,7 +35,7 @@ BROWSER_HEADERS = {
 }
 
 SEC_HEADERS = {
-    "User-Agent": "FTCNewsResearch research@example.com",
+    "User-Agent": "FTCNewsResearch sfdgsdgs@gmail.com",
     "Accept": "application/json",
 }
 
@@ -194,95 +194,141 @@ def _clean_entity(text: str) -> str:
 def extract_org_candidates(text: str) -> list[str]:
     nlp = load_spacy()
     doc = nlp(text)
+
     raw: list[str] = []
+
     for ent in doc.ents:
         if ent.label_ == "ORG":
             raw.append(ent.text)
-        elif ent.label_ in {"PERSON", "PRODUCT"} and ent.text[:1].isupper():
-            words = re.findall(r"[A-Za-z][A-Za-z0-9&]+", ent.text)
-            keep = [
-                w for w in words
-                if w.lower() in ALIAS_TO_CANONICAL
-                or (len(w) >= 5 and w.lower() not in GENERIC_NAME_TOKENS)
-            ]
-            if keep:
+
+        elif ent.label_ in {"PERSON", "PRODUCT"}:
+            # PERSON / PRODUCT 只接受明确存在于别名库中的名称
+            candidate = normalize_name(ent.text)
+            if candidate in ALIAS_TO_CANONICAL:
                 raw.append(ent.text)
 
     candidates: list[str] = []
+
     for item in raw:
         parts = [item]
+
+        # 完整名称和拆分名称都保留
         if COMPOUND_SPLIT_RE.search(item):
-            parts.extend(p for p in COMPOUND_SPLIT_RE.split(item) if p)
+            parts.extend(
+                p.strip()
+                for p in COMPOUND_SPLIT_RE.split(item)
+                if p.strip()
+            )
+
         for part in parts:
             cleaned = _clean_entity(part)
-            if cleaned:
-                candidates.append(cleaned)
+            if not cleaned:
+                continue
+
+            candidates.append(cleaned)
+
             low = cleaned.lower()
             if low in ALIAS_TO_CANONICAL:
                 candidates.append(ALIAS_TO_CANONICAL[low])
 
     seen = set()
     out = []
+
     for c in candidates:
         key = normalize_name(c)
+
         if not key or key in seen or _should_skip_org(c):
             continue
+
         seen.add(key)
         out.append(c)
-    return out
 
+    return out
 
 def match_company(query: str, universe: list[dict]) -> tuple[str, str, int] | None:
     q_raw = query.strip()
     q_low = q_raw.lower()
+
     if q_low in ALIAS_TO_CANONICAL:
         q_raw = ALIAS_TO_CANONICAL[q_low]
+
     q_norm = normalize_name(q_raw)
+
     if not q_norm or _should_skip_org(q_raw):
         return None
 
+    # 1. 标准化名称精确匹配
     exact = [c for c in universe if c["norm"] == q_norm]
-    if exact:
+
+    if len(exact) == 1:
         hit = exact[0]
         return hit["title"], hit["ticker"], 100
 
+    # 2. 核心词匹配
     q_tokens = q_norm.split()
+
     weak = GENERIC_NAME_TOKENS | {
         "media", "group", "holdings", "partners", "services", "service",
         "international", "america", "american", "health", "capital",
         "financial", "global", "national", "systems", "solutions",
     }
+
     core = [t for t in q_tokens if t not in weak and len(t) >= 3]
+
     if len(q_norm) >= 5 and core:
         token_hits = []
+
         for c in universe:
             c_tokens = set(c["norm"].split())
+
             if set(core).issubset(c_tokens):
                 token_hits.append(c)
+
         if len(token_hits) == 1:
             hit = token_hits[0]
             return hit["title"], hit["ticker"], 96
-        if len(token_hits) > 1:
-            hit = min(token_hits, key=lambda x: (len(x["norm"]), x["title"]))
-            return hit["title"], hit["ticker"], 93
 
+        # 多个候选时不再随意选最短名称
+        # 留给后续模糊匹配进一步判断
+
+    # 3. RapidFuzz 模糊匹配
     choices = {i: c["norm"] for i, c in enumerate(universe)}
-    best = process.extractOne(
+
+    results = process.extract(
         q_norm,
         choices,
         scorer=fuzz.token_set_ratio,
         score_cutoff=FUZZ_THRESHOLD,
+        limit=2,
     )
-    if not best:
+
+    if not results:
         return None
+
+    best = results[0]
     idx, score = best[2], best[1]
+
+    # 短名称提高匹配要求
     if len(q_norm) <= 5 and score < 95:
         return None
+
+    # 4. 检查第一名与第二名的分数差距
+    if len(results) > 1:
+        second_score = results[1][1]
+
+        # 两个候选太接近时，视为歧义，不自动匹配
+        if score - second_score < 5:
+            return None
+
     hit = universe[idx]
+
+    # 5. 至少有一个核心词必须匹配
     if core:
         hit_tokens = set(hit["norm"].split())
+
         if not any(t in hit_tokens for t in core):
             return None
+
     return hit["title"], hit["ticker"], int(score)
 
 
@@ -324,22 +370,65 @@ def find_listed_companies(title: str, summary: str) -> list[tuple[str, str]]:
 
 
 def send_telegram_message(html_content: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram Token 或 Chat ID 未配置。")
-        return
+    if not TELEGRAM_BOT_TOKEN:
+        raise RuntimeError("缺少 TELEGRAM_BOT_TOKEN")
+
+    if not TELEGRAM_CHAT_ID:
+        raise RuntimeError("缺少 TELEGRAM_CHAT_ID")
+
+    target_ids = [
+        x.strip()
+        for x in TELEGRAM_CHAT_ID.split(",")
+        if x.strip()
+    ]
+
+    if not target_ids:
+        raise RuntimeError("TELEGRAM_CHAT_ID 中没有有效的 Chat ID")
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": html_content,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    try:
-        resp = requests.post(url, json=payload, timeout=30)
-        resp.raise_for_status()
-        print("Telegram 消息推送成功！")
-    except Exception as e:
-        print(f"Telegram 推送失败: {e}")
+
+    # 按新闻块分段，避免超过 Telegram 4096 字符限制
+    parts = html_content.split("\n\n")
+    messages = []
+    current = ""
+
+    for part in parts:
+        candidate = f"{current}\n\n{part}" if current else part
+
+        if len(candidate) > 3500 and current:
+            messages.append(current)
+            current = part
+        else:
+            current = candidate
+
+    if current:
+        messages.append(current)
+
+    for message in messages:
+        for chat_id in target_ids:
+            resp = requests.post(
+                url,
+                json={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=30,
+            )
+
+            resp.raise_for_status()
+
+            result = resp.json()
+            if not result.get("ok"):
+                raise RuntimeError(
+                    f"Telegram API 返回发送失败，Chat ID: {chat_id}"
+                )
+
+    print(
+        f"✅ Telegram 推送成功："
+        f"{len(messages)} 条消息，{len(target_ids)} 个接收目标"
+    )
 
 
 def main():
